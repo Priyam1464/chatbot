@@ -6,8 +6,7 @@ const { Telegraf } = require("telegraf");
 const { message } = require("telegraf/filters");
 const { chatbotConfig } = require("./chatbot.config");
 const { TelegramUI } = require("./telegram-ui/telegramUI");
-
-const { TOKEN, SERVER_URL } = process.env;
+const { TOKEN, SERVER_URL, API_URL } = process.env;
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 const URI = `/webhook/${TOKEN}`;
 const WEBHOOK_URL = SERVER_URL + URI;
@@ -16,6 +15,7 @@ const CALLBACK_QUERY_URL = TELEGRAM_API + "/answerCallbackQuery";
 
 const app = express();
 app.use(bodyParser.json());
+
 const bot = new Telegraf(TOKEN);
 let text;
 
@@ -24,22 +24,11 @@ const init = async () => {
   console.log(res.data);
 };
 
-//bot.start((ctx) => ctx.reply("Welcome"));
-
-// bot.on("callback_query", async (ctx) => {
-//   // Explicit usage
-//   console.log("id", ctx.callbackQuery.id);
-//   await ctx.telegram.answerCbQuery(ctx.callbackQuery.id);
-
-//   // Using context shortcut
-//   await ctx.answerCbQuery();
-// });
-
 const getUser = async (telegramId) => {
   const existenceArr = (
     await Promise.all([
-      axios.get(`http://localhost:8080/api/v1/candidate/${telegramId}`),
-      axios.get(`http://localhost:8080/api/v1/recruiter/${telegramId}`),
+      axios.get(`${API_URL}/candidate/${telegramId}`),
+      axios.get(`${API_URL}/recruiter/${telegramId}`),
     ])
   ).map((res) => res.data);
 
@@ -62,25 +51,17 @@ app.post(URI, async (req, res) => {
     console.log("chat", chatId);
     text = req.body.message.text;
 
-    // const data = await axios.get(UPDATES_URL);
-    //console.log("data", data);
-
-    //  console.log("Existence", existenceArr);
-
-    if (text === "/start") {
-      if (user !== null) {
-      } else {
-        await axios.post(
-          `${TELEGRAM_API}/sendMessage`,
-          TelegramUI.getKeyboard(
-            chatId,
-            chatbotConfig["start"].text,
-            chatbotConfig["start"].replyType,
-            chatbotConfig["start"].options,
-            3
-          )
-        );
-      }
+    if (text === "/start" && user === null) {
+      await axios.post(
+        `${TELEGRAM_API}/sendMessage`,
+        TelegramUI.getKeyboard(
+          chatId,
+          chatbotConfig["start"].text,
+          chatbotConfig["start"].replyType,
+          chatbotConfig["start"].options,
+          3
+        )
+      );
     } else {
       if (user) {
         if (!Array.isArray(user.lastReplyPending)) {
@@ -91,23 +72,20 @@ app.post(URI, async (req, res) => {
             chatbotConfig[user.lastReplyPending].api
           ) {
             console.log("last", chatbotConfig[user.lastReplyPending]);
-            await axios.patch(
-              `http://localhost:8080/api/v1/${user.type}/${user.telegramId}`,
-              {
-                lastReplyPending: chatbotConfig[user.lastReplyPending].next,
-                [typeof chatbotConfig[user.lastReplyPending].api.bodyParam ===
+            await axios.patch(`${API_URL}/${user.type}/${user.telegramId}`, {
+              lastReplyPending: chatbotConfig[user.lastReplyPending].next,
+              [typeof chatbotConfig[user.lastReplyPending].api.bodyParam ===
+              "object"
+                ? chatbotConfig[user.lastReplyPending].api.bodyParam.key
+                : chatbotConfig[user.lastReplyPending].api.bodyParam]:
+                typeof chatbotConfig[user.lastReplyPending].api.bodyParam ===
                 "object"
-                  ? chatbotConfig[user.lastReplyPending].api.bodyParam.key
-                  : chatbotConfig[user.lastReplyPending].api.bodyParam]:
-                  typeof chatbotConfig[user.lastReplyPending].api.bodyParam ===
-                  "object"
-                    ? {
-                        [chatbotConfig[user.lastReplyPending].api.bodyParam
-                          .key]: req.body.message.text,
-                      }
-                    : req.body.message.text,
-              }
-            );
+                  ? {
+                      [chatbotConfig[user.lastReplyPending].api.bodyParam.key]:
+                        req.body.message.text,
+                    }
+                  : req.body.message.text,
+            });
           }
           const nextStep = chatbotConfig[user.lastReplyPending].next;
 
@@ -147,21 +125,6 @@ app.post(URI, async (req, res) => {
               );
             }
           }
-          // } else {
-          //   console.log("here");
-          //   await axios.post(
-          //     `${TELEGRAM_API}/sendMessage`,
-          //     TelegramUI.getKeyboard(
-          //       chatId,
-          //       chatbotConfig[nextStep].text !== null
-          //         ? chatbotConfig[nextStep].text
-          //         : null,
-          //       chatbotConfig[nextStep].replyType,
-          //       chatbotConfig[nextStep].options,
-          //       3
-          //     )
-          //   );
-          // }
         } else {
           if (
             user.lastReplyPending.findIndex(
@@ -181,7 +144,7 @@ app.post(URI, async (req, res) => {
             ) {
               data = (
                 await axios.get(
-                  `http://localhost:8080/api/v1/${user.type}${
+                  `${API_URL}/${user.type}${
                     chatbotConfig[
                       user.lastReplyPending[
                         user.lastReplyPending.findIndex(
@@ -193,17 +156,14 @@ app.post(URI, async (req, res) => {
                 )
               ).data.data;
             } else {
-              await axios.patch(
-                `http://localhost:8080/api/v1/${user.type}/${user.telegramId}`,
-                {
-                  lastReplyPending:
-                    user.lastReplyPending[
-                      user.lastReplyPending.findIndex(
-                        (element) => element.text === text
-                      )
-                    ].id,
-                }
-              );
+              await axios.patch(`${API_URL}/${user.type}/${user.telegramId}`, {
+                lastReplyPending:
+                  user.lastReplyPending[
+                    user.lastReplyPending.findIndex(
+                      (element) => element.text === text
+                    )
+                  ].id,
+              });
             }
 
             await axios.post(
@@ -225,10 +185,6 @@ app.post(URI, async (req, res) => {
         }
       }
     }
-    //   await axios.post(`${TELEGRAM_API}/sendMessage`, {
-    //     chat_id: chatId,
-    //     text: text,b
-    //   });
   } else if (req.body.callback_query) {
     console.log("text", req.body.callback_query);
     const user = await getUser(req.body.callback_query.from.username);
@@ -252,7 +208,7 @@ app.post(URI, async (req, res) => {
       );
 
       await axios.post(
-        `http://localhost:8080/api/v1/${req.body.callback_query.data.toLowerCase()}/`,
+        `${API_URL}/${req.body.callback_query.data.toLowerCase()}/`,
         {
           lastReplyPending: req.body.callback_query.data.toLowerCase(),
           telegramId: req.body.callback_query.from.username,
@@ -275,13 +231,10 @@ app.post(URI, async (req, res) => {
         chatbotConfig[user.lastReplyPending].api
       ) {
         console.log("last", chatbotConfig[user.lastReplyPending]);
-        await axios.patch(
-          `http://localhost:8080/api/v1/${user.type}/${user.telegramId}`,
-          {
-            lastReplyPending: nextStep,
-            [chatbotConfig[user.lastReplyPending].api.bodyParam]: text,
-          }
-        );
+        await axios.patch(`${API_URL}/${user.type}/${user.telegramId}`, {
+          lastReplyPending: nextStep,
+          [chatbotConfig[user.lastReplyPending].api.bodyParam]: text,
+        });
       }
 
       if (chatbotConfig[nextStep].replyType) {
@@ -309,12 +262,9 @@ app.post(URI, async (req, res) => {
           );
         }
       } else {
-        await axios.patch(
-          `http://localhost:8080/api/v1/${user.type}/${user.telegramId}`,
-          {
-            lastReplyPending: chatbotConfig[nextStep].next,
-          }
-        );
+        await axios.patch(`${API_URL}/${user.type}/${user.telegramId}`, {
+          lastReplyPending: chatbotConfig[nextStep].next,
+        });
 
         if (chatbotConfig[nextStep].replyType === "text") {
           await axios.post(
@@ -344,19 +294,6 @@ app.post(URI, async (req, res) => {
   }
   return res.send();
 });
-
-// bot.command("start", async (ctx) => {
-//   // Explicit usage
-//   await ctx.telegram.sendMessage(
-//     ctx.message.chat.id,
-//     `Hello ${ctx.state.role}`
-//   );
-
-//   // Using context shortcut
-//   await ctx.reply(`Hello ${ctx.state.role}`);
-// });
-
-//bot.launch();
 
 app.listen(process.env.PORT || 8000, async () => {
   console.log("🚀 app running on port", process.env.PORT || 8000);
